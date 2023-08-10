@@ -1,0 +1,2 @@
+# Rengo
+Rengo is a powerful and efficient MongoDB wire protocol implementation that seamlessly integrates MongoDB and Redis to enhance the performance of your applications. With Rengo, you can leverage the capabilities of both MongoDB and Redis caching without the need to modify or refactor your existing codebase.

@@ -150,9 +150,6 @@ fn  run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExec
     let command = docs[0].keys().next().unwrap();
     
     println!("command on line 148: {}", command);
-
-
-
     if command == "listDatabases" {
         return crate::commands::list_databases::ListDatabases::new().handle(request, docs);
     }
@@ -222,29 +219,22 @@ fn handle_op_msg(request: &Request, msg: OP_MSG) -> Result<Document, CommandExec
 
     if section.kind == 1 {
         if section.identifier.is_none() {
-            
             return Err(CommandExecutionError::new(
                 "all kind 1 sections on OP_MSG must have an identifier, received none".to_string(),
             ));
         }
-
         let mut identifier = section.identifier.unwrap();
         identifier.pop();
-
         if identifier == "documents" {
             if msg.sections.len() < 2 {
-               
                 return Err(CommandExecutionError::new(
                     "OP_MSG with a kind 1 documents section must also have at least one kind 0 section, received none".to_string(),
                 ));
             }
-
             let mut doc = msg.sections[1].documents[0].clone();
             doc.insert(identifier, section.documents.clone());
             return run(request, &vec![doc]);
         }
-
-        
         return Err(CommandExecutionError::new(
             format!(
                 "received unknown kind 1 section identifier from OP_MSG: {}",
@@ -253,8 +243,6 @@ fn handle_op_msg(request: &Request, msg: OP_MSG) -> Result<Document, CommandExec
             .to_string(),
         ));
     }
-
-    
     Err(CommandExecutionError::new(
         format!(
             "received unknown section kind from OP_MSG: {}",

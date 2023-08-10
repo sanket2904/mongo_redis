@@ -1,17 +1,12 @@
 use std::{net::{TcpListener, TcpStream}, io::{Read,  Write},  env};
 use byteorder::{LittleEndian,  ByteOrder};
 use bson::{Bson,  doc };
-// use crate::handler::{Request, Response};
-// use 
 pub mod mongo;
 pub mod rd;
 pub mod handler;
 pub mod Wire;
 pub mod utils;
-
 pub mod commands;
-
-
 #[tokio::main]
 async fn main() {
     async fn start(listen_addr: Option<String> , port: Option<u16>)  {
@@ -69,14 +64,10 @@ impl Server {
     }
 }
 
-
-
 fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , redis_client: redis::Client) {  // need to possibly use request id here
     let addr = stream.peer_addr().unwrap();
     println!("Client connected: {}", addr);
-
     loop {
-       
         let mut size_buffer = [0;4];
         let _read = stream.peek(&mut size_buffer).unwrap();
         let size = LittleEndian::read_i32(&size_buffer);
@@ -85,13 +76,10 @@ fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , red
             break;
         }
         let mut buffer = vec![0; size as usize];
-        
         match stream.read_exact(&mut buffer) {
             Ok(_read) => {
                 use std::time::Instant;
-                
                 let now = Instant::now();
-
                 let op_code = Wire::parse(&buffer);
                 if op_code.is_err() {
                     println!("Error: {:?}", op_code);
@@ -102,10 +90,8 @@ fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , red
                     return;
                 }
                 let op_code = op_code.unwrap();
-                
                 let mongo_client = mongo_client.clone();
                 let redis_client = redis_client.clone();
-
                 let mut response = match handler::handle(0, addr, &op_code, mongo_client, redis_client) {
                     Ok(reply) => reply,
                     Err(e) => {
@@ -121,11 +107,9 @@ fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , red
                     }
                 };
                 response.flush().unwrap();
-
                 let elapsed = now.elapsed();
                 println!("Elapsed: {}ms", elapsed.as_millis());
                 stream.write_all(&response).unwrap();
-
             }
             Err(e) => {
                 println!("Error: {}", e);

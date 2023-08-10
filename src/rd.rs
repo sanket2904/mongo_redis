@@ -1,8 +1,5 @@
 // using this file to connect to the redis
-
 use std::time::SystemTime;
-// use hex_literal::hex;
-
 use bson::{Document, Bson, JavaScriptCodeWithScope};
 use redis;
 use serde_json::{json , Value};
@@ -10,20 +7,9 @@ use chrono::{TimeZone, Utc};
 pub struct RedisDb {
     pub db: redis::Client,
 }
-
-
 pub trait RedisSerializer {
     fn to_redis(&self) -> Value;
 }
-
-
-
-
-
-
-
-
-    
 impl RedisSerializer for Bson {
     fn to_redis(&self) -> Value {
         match self {
@@ -63,23 +49,7 @@ impl RedisSerializer for Bson {
 
         }
     }
-
-
-    // we are converting bson to redis value
-    // fn from_redis_value( &self, v: &redis::Value ) -> redis::RedisResult<Self> {
-    //     match self {
-    //         Bson::Int32(e) => FromRedisValue::from_redis_value(v).map(|v| Bson::Int32(v)),
-    //         Bson::Int64(e) => FromRedisValue::from_redis_value(v).map(|v| Bson::Int64(v)),
-    //         Bson::Double(e) => FromRedisValue::from_redis_value(v).map(|v| Bson::Double(v)),
-    //         Bson::DateTime(e) => FromRedisValue::from_redis_value(v).map(|v| Bson::DateTime(v)),
-    //         Bson::Array(e) => FromRedisValue::from_redis_value(v).map(|v| Bson::Array(v)),
-    //     }
-    // }
 }
-
-
-
-
 pub trait RedisDeserializer {
     fn from_redis(&self) -> Bson;
 }
@@ -147,10 +117,6 @@ impl RedisDeserializer for Value {
     }
 }
 
-
-
-
-
 impl RedisDb {
     pub fn new() -> Self {
         // use uri from env
@@ -163,24 +129,13 @@ impl RedisDb {
         let client = redis::Client::open(uri).unwrap();
         // let con = client.get_connection().unwrap();
         RedisDb { db: client }
-    }
-
-    // a hash generator for redis on the basis of the mongodb filter
-   
-   
-
-
-
-
-
-   
+    } 
 }
 #[derive(Debug, Clone)]
 pub struct RedisParams {
     pub db: String,
     pub collection: String,
 }
-
 impl RedisParams {
     pub fn new(db: &str, collection: &str) -> Self {
         RedisParams {
@@ -191,8 +146,4 @@ impl RedisParams {
     pub fn from(doc: &Document, col_attr: &str) -> Self {
         Self::new(&doc.get_str("$db").unwrap().to_string(), &doc.get_str(col_attr).unwrap().to_string())
     }
-
-    
-    
-
 }

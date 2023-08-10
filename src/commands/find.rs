@@ -70,7 +70,6 @@ impl Handler for Find {
                     return res;
                 } else {
                     // convert the string to document
-
                     return Ok(doc! {
                         "ok": Bson::Double(1.0),
                         "cursor": {
