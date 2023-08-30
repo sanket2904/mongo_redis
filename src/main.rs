@@ -56,9 +56,9 @@ impl Server {
             println!("New connection: {}", stream.peer_addr().unwrap());
             let rt = tokio::runtime::Runtime::new().unwrap();
             thread::spawn( move || {
-                rt.block_on(async move {
-                    handle_connection(stream, mongo_client, redis_client).await;
-                })
+                rt.block_on(
+                    handle_connection(stream, mongo_client, redis_client)
+                )
             });
         }
         println!("Shutting down server");

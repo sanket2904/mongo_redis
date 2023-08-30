@@ -148,8 +148,6 @@ fn run_op_query(request: &Request, docs: &Vec<Document>) -> Result<Document, Com
 
 async fn  run(request: &Request<'_>, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
-    
-    println!("command on line 148: {}", command);
     if command == "listDatabases" {
         return crate::commands::list_databases::ListDatabases::new().handle(request, docs).await;
     }

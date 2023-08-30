@@ -23,7 +23,6 @@ impl Find {
         _request: &crate::handler::Request<'_>,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
-        println!("find command");
         let doc = &docs[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("find").unwrap();
@@ -34,7 +33,6 @@ impl Find {
         };
         let redis_db = _request.redis_client;
         let hash = hash(&filter, collection);
-        println!("{:?}",hash);
         let mut con = match  redis_db.get_connection() {
             Ok(con) => con,
             Err(_) => {
