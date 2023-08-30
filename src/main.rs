@@ -1,4 +1,4 @@
-use std::{net::{TcpListener, TcpStream}, io::{Read,  Write},  env};
+use std::{net::{TcpListener, TcpStream}, io::{Read,  Write},  env, thread};
 use byteorder::{LittleEndian,  ByteOrder};
 use bson::{Bson,  doc };
 pub mod mongo;
@@ -22,7 +22,7 @@ async fn main() {
         }
         let mongo_client = mongo::MongoDb::new().await.db;
         let redis_client = rd::RedisDb::new().db;
-        Server::new(ip_addr, port, mongo_client, redis_client).start().await;
+        Server::new(ip_addr, port, mongo_client, redis_client).start();
     }
     let listen_addr = "127.0.0.1";
     let port = 27017;
@@ -45,26 +45,27 @@ impl Server {
             redis_client,
         }
     }
-    pub async fn start(&self) {
+    pub fn start(&self) {
         println!("Starting server...");
         let listner = TcpListener::bind(format!("{}:{}", self.listen_addr, self.port)).unwrap();
         println!("Server started on port {}", self.port);
-        // let pool = ThreadPool::new(100);
         for stream in listner.incoming() {
             let stream = stream.unwrap();
             let mongo_client = self.mongo_client.clone();
             let redis_client = self.redis_client.clone();
             println!("New connection: {}", stream.peer_addr().unwrap());
-            //  possible have to use thread pool here
-            std::thread::spawn(move || {
-                handle_connection(stream , mongo_client , redis_client);
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            thread::spawn( move || {
+                rt.block_on(async move {
+                    handle_connection(stream, mongo_client, redis_client).await;
+                })
             });
         }
         println!("Shutting down server");
     }
 }
 
-fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , redis_client: redis::Client) {  // need to possibly use request id here
+async fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , redis_client: redis::Client) {  // need to possibly use request id here
     let addr = stream.peer_addr().unwrap();
     println!("Client connected: {}", addr);
     loop {
@@ -92,7 +93,7 @@ fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , red
                 let op_code = op_code.unwrap();
                 let mongo_client = mongo_client.clone();
                 let redis_client = redis_client.clone();
-                let mut response = match handler::handle(0, addr, &op_code, mongo_client, redis_client) {
+                let mut response = match handler::handle(0, addr, &op_code, mongo_client, redis_client).await {
                     Ok(reply) => reply,
                     Err(e) => {
                         println!("Error: {}", e);
@@ -107,8 +108,6 @@ fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , red
                     }
                 };
                 response.flush().unwrap();
-                let elapsed = now.elapsed();
-                println!("Elapsed: {}ms", elapsed.as_millis());
                 stream.write_all(&response).unwrap();
             }
             Err(e) => {

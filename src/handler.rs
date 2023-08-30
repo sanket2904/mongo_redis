@@ -89,7 +89,7 @@ impl <'a> Response<'a> {
 }
 
 
-pub fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_client: mongodb::Client , redis_client: redis::Client) -> Result<Vec<u8>, CommandExecutionError> {
+pub async fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_client: mongodb::Client , redis_client: redis::Client) -> Result<Vec<u8>, CommandExecutionError> {
 
 
     let request = Request {
@@ -99,7 +99,7 @@ pub fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_client: mo
         redis_client: &redis_client,
     };
 
-    match route(&request) {
+    match route(&request).await {
         Ok(doc) => {
             let response = Response {
                 id, op_code,docs: vec![doc],
@@ -115,11 +115,11 @@ pub fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_client: mo
 
 // route function 
 
-fn route(request: &Request) -> Result<Document, CommandExecutionError> {
+async fn route(request: &Request<'_>) -> Result<Document, CommandExecutionError> {
     match request.get_op_code() {
         // OpCode::OpMsg(op_msg) => op_msg.handle(request),
         OpCode::OpQuery(op_query) => run_op_query(request,  &vec![op_query.query.clone()]),
-        OpCode::OpMsg(message) => handle_op_msg(request, message.clone()),
+        OpCode::OpMsg(message) => handle_op_msg(request, message.clone()).await,
         _ => Err(CommandExecutionError::new("Unknown OpCode".to_string())),
     }
 }
@@ -146,27 +146,27 @@ fn run_op_query(request: &Request, docs: &Vec<Document>) -> Result<Document, Com
 
 
 
-fn  run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+async fn  run(request: &Request<'_>, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
     
     println!("command on line 148: {}", command);
     if command == "listDatabases" {
-        return crate::commands::list_databases::ListDatabases::new().handle(request, docs);
+        return crate::commands::list_databases::ListDatabases::new().handle(request, docs).await;
     }
     else if command == "listCollections" {
-        return crate::commands::list_collections::ListCollections::new().handle(request, docs);
+        return crate::commands::list_collections::ListCollections::new().handle(request, docs).await;
     } else if command == "listIndexes" {
-        return crate::commands::list_indexes::ListIndexes::new().handle(request, docs);
+        return crate::commands::list_indexes::ListIndexes::new().handle(request, docs).await;
     } else if command == "getCmdLineOpts" {
         return crate::commands::get_cmd_line_opts::GetCmdLineOpts::new().handle(request, docs);
     } else if command == "buildInfo" || command == "buildinfo" {
         return crate::commands::build_info::BuildInfo::new().handle(request, docs);
     } else if command == "find" {
-        return crate::commands::find::Find::new().handle(request, docs);
+        return crate::commands::find::Find::new().handle(request, docs).await;
     } else if command == "insert" {
-        return crate::commands::insert::Insert::new().handle(request, docs);
+        return crate::commands::insert::Insert::new().handle(request, docs).await;
     } else if command == "create" {
-        return crate::commands::create::Create::new().handle(request, docs);
+        return crate::commands::create::Create::new().handle(request, docs).await;
     } else if command == "connectionStatus" {
         return crate::commands::connection_status::ConnectionStatus::new().handle(request, docs);
     } else if command == "getParameter"{
@@ -193,7 +193,7 @@ fn  run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExec
 }
 
 
-fn handle_op_msg(request: &Request, msg: OP_MSG) -> Result<Document, CommandExecutionError> {
+async fn handle_op_msg(request: &Request<'_>, msg: OP_MSG) -> Result<Document, CommandExecutionError> {
     if msg.sections.len() < 1 {
         
         return Err(CommandExecutionError::new(
@@ -214,7 +214,7 @@ fn handle_op_msg(request: &Request, msg: OP_MSG) -> Result<Document, CommandExec
                 }
             }
         }
-        return run(request, &documents);
+        return run(request, &documents).await;
     }
 
     if section.kind == 1 {
@@ -233,7 +233,7 @@ fn handle_op_msg(request: &Request, msg: OP_MSG) -> Result<Document, CommandExec
             }
             let mut doc = msg.sections[1].documents[0].clone();
             doc.insert(identifier, section.documents.clone());
-            return run(request, &vec![doc]);
+            return run(request, &vec![doc]).await;
         }
         return Err(CommandExecutionError::new(
             format!(

@@ -1,17 +1,16 @@
-use super::Handler;
+
 pub struct ListIndexes {}
-impl Handler for ListIndexes {
-    fn new() -> Self {
+impl ListIndexes {
+    pub fn new() -> Self {
         ListIndexes {}
     }
-    fn handle(&self,_request: &crate::handler::Request,msg: &Vec<bson::Document>) -> Result<bson::Document, crate::handler::CommandExecutionError> {
+    pub async fn handle(&self,_request: &crate::handler::Request<'_>,msg: &Vec<bson::Document>) -> Result<bson::Document, crate::handler::CommandExecutionError> {
         let doc = &msg[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("listIndexes").unwrap();
-        let rt = tokio::runtime::Runtime::new().unwrap();
         let client = _request.client;
         let coll = client.database(db).collection::<bson::Document>(collection);
-        let indexes_doc = rt.block_on(send_indexes(coll));
+        let indexes_doc =send_indexes(coll).await;
         // use while to manage cursor
         return Ok(bson::doc! {
             "cursor": {

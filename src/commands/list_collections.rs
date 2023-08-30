@@ -1,20 +1,19 @@
-use super::Handler;
+
 use crate::{mongo::MongoDb, handler::CommandExecutionError};
 use bson::{doc,Bson, Document};
 
 pub struct ListCollections {}
 
-impl Handler for ListCollections {
-    fn new() -> Self {
+impl ListCollections {
+    pub fn new() -> Self {
         ListCollections {}
     }
 
-    fn handle(&self,_request: &crate::handler::Request,msg: &Vec<bson::Document>) -> Result<Document, CommandExecutionError> {
+    pub async fn handle(&self,_request: &crate::handler::Request<'_>,msg: &Vec<bson::Document>) -> Result<Document, CommandExecutionError> {
         
         let doc = &msg[0];
         let db = doc.get_str("$db").unwrap();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let colls_doc = rt.block_on(send_collections(db));
+        let colls_doc = send_collections(db).await;
         // use while to manage cursor
 
         return Ok(doc! {

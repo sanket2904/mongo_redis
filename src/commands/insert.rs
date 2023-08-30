@@ -1,21 +1,21 @@
 use crate::handler::{CommandExecutionError, Request};
-use crate::commands::Handler;
+
 use bson::{doc, Bson, Document};
 pub struct Insert {}
-impl Handler for Insert {
-    fn new() -> Self {
+impl Insert {
+    pub fn new() -> Self {
         Insert {}
     }
-    fn handle(&self,_request: &Request,msg: &Vec<Document>,) -> Result<Document, CommandExecutionError> {
+    pub async fn handle(&self,_request: &Request<'_>,msg: &Vec<Document>,) -> Result<Document, CommandExecutionError> {
         let doc = &msg[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("insert").unwrap();
         
         let docs: Vec<Document> = doc.get_array("documents").unwrap().iter().map(|d| d.as_document().unwrap().clone()).collect();
-        let rt = tokio::runtime::Runtime::new().unwrap();
+
         // let docss = docs.clone();
         let mongo_client = _request.client;
-        let result = rt.block_on( mongo_client.database(db).collection(collection).insert_many(docs , None) );
+        let result =  mongo_client.database(db).collection(collection).insert_many(docs , None).await;
         match result {
             Ok(_) => Ok(doc! {
                 "ok": Bson::Double(1.0),

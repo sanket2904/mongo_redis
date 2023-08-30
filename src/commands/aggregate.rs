@@ -1,21 +1,16 @@
-use super::Handler;
-
-
-
 pub struct Aggregate {}
 
 
-impl Handler for Aggregate {
+impl Aggregate {
     fn new() -> Self {
         Aggregate {}
     }
-    fn handle(&self,_request: &crate::handler::Request,msg: &Vec<bson::Document>,) -> Result<bson::Document, crate::handler::CommandExecutionError> {
+    async fn handle(&self,_request: &crate::handler::Request<'_>,msg: &Vec<bson::Document>,) -> Result<bson::Document, crate::handler::CommandExecutionError> {
         let doc = &msg[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("aggregate").unwrap();
         let pipeline = doc.get_array("pipeline").unwrap();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let data = rt.block_on(get_aggregate(db, collection, pipeline, _request.client));
+        let data = get_aggregate(db, collection, pipeline, _request.client).await;
         return data;
     }
 }

@@ -1,15 +1,14 @@
-use super::Handler;
+
 pub struct ListDatabases {}
-impl Handler for ListDatabases {
-    fn new() -> Self {
+impl ListDatabases {
+    pub fn new() -> Self {
         ListDatabases {}
     }
-    fn handle(&self,_request: &crate::handler::Request,msg: &Vec<bson::Document>) -> Result<bson::Document, crate::handler::CommandExecutionError> {
+    pub async fn  handle(&self,_request: &crate::handler::Request<'_>,msg: &Vec<bson::Document>) -> Result<bson::Document, crate::handler::CommandExecutionError> {
         let doc = &msg[0];
         let name_only = doc.get_bool("nameOnly").unwrap_or(false);
         let mongo_client = _request.client;
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let res = rt.block_on(send_databases(name_only,mongo_client));
+        let res = send_databases(name_only,mongo_client).await;
 
         return res;
         

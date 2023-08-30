@@ -1,27 +1,26 @@
 // use crate::dese
 use crate::{
-    commands::Handler,
+   
     handler::CommandExecutionError,
     rd::{RedisDeserializer, RedisSerializer},
 };
 use bson::{doc, Bson, Document, RawDocumentBuf};
 // use mongodb::Cursor;
 
-use super::hash;
+use super::hash;    
 
 
 use redis::FromRedisValue;
 use serde_json::Value;
 pub struct Find {}
 
-impl Handler for Find {
-    fn new() -> Self {
+impl Find {
+    pub fn new() -> Self {
         return Find {};
     }
-
-    fn handle(
+    pub async fn handle(
         &self,
-        _request: &crate::handler::Request,
+        _request: &crate::handler::Request<'_>,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
         println!("find command");
@@ -35,14 +34,23 @@ impl Handler for Find {
         };
         let redis_db = _request.redis_client;
         let hash = hash(&filter, collection);
-
-        let mut con = redis_db.get_connection().unwrap();
+        println!("{:?}",hash);
+        let mut con = match  redis_db.get_connection() {
+            Ok(con) => con,
+            Err(_) => {
+                println!("error in redis connection");
+                let client = _request.client;
+                return doc_finder(collection, filter, db, client).await
+            },
+        };
         let data = redis::cmd("JSON.GET")
             .arg(hash.clone())
             .query::<String>(&mut con);
 
         match data {
+            
             Ok(val) => {
+                println!("here");
                 let j: Value = serde_json::from_str(&val).unwrap();
                 let bson_doc = j.from_redis();
                 let main_doc = bson_doc.as_document().unwrap();
@@ -53,13 +61,11 @@ impl Handler for Find {
                     .unwrap()
                     .get_array("firstBatch")
                     .unwrap();
-
-                if c.len() == 0 {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
+                if c.is_empty() {
                     let mongo_client = _request.client;
-                    let res = rt.block_on(doc_finder(collection, filter, db, mongo_client));
+                    let res = doc_finder(collection, filter, db, mongo_client).await.unwrap();
                     // convert the document to bson
-                    let doc_bson = bson::to_bson(&res.clone().unwrap()).unwrap();
+                    let doc_bson = bson::to_bson(&res).unwrap();
                     let to_be_stored = doc_bson.to_redis().to_string();
                     let _response_redis = redis::cmd("JSON.SET")
                         .arg(hash)
@@ -67,7 +73,7 @@ impl Handler for Find {
                         .arg(to_be_stored)
                         .query::<String>(&mut con);
 
-                    return res;
+                    return Ok(res);
                 } else {
                     // convert the string to document
                     return Ok(doc! {
@@ -81,20 +87,22 @@ impl Handler for Find {
                 }
             }
             Err(e) => {
+                println!("{:?}",e);
                 if e.kind() == redis::ErrorKind::TypeError {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
                     let mongo_client = _request.client;
-                    let res = rt.block_on(doc_finder(collection, filter, db,mongo_client));
-                    // convert the document to bson
-                    let doc_bson = bson::to_bson(&res.clone().unwrap()).unwrap();
+                    let res = doc_finder(collection, filter, db,mongo_client).await.unwrap();
+                    let doc_bson = bson::to_bson(&res).unwrap();
                     let to_be_stored = doc_bson.to_redis().to_string();
                     let _response_redis = redis::cmd("JSON.SET")
                         .arg(hash)
                         .arg(".")
                         .arg(to_be_stored)
                         .query::<String>(&mut con);
-
-                    return res;
+                    match _response_redis {
+                        Ok(s) => println!("{:?}",s),
+                        Err(e) => println!("{:?}",e) 
+                    }
+                    return Ok(res);
                 } else {
                     return Err(CommandExecutionError::new(format!(
                         "error during find: {:?}",
@@ -113,12 +121,9 @@ async fn doc_finder(
     mongo_client: &mongodb::Client,
 ) -> Result<Document, CommandExecutionError> {
     // let mongo_client = crate::mongo::MongoDb::new().await;
-    let result = mongo_client
-        .database(db)
-        .collection::<Document>(collection);
+    let result = mongo_client.database(db).collection::<Document>(collection);
     
-    let docs: Result<mongodb::Cursor<Document>, mongodb::error::Error> =
-        result.find(filter, None).await;
+    let docs: Result<mongodb::Cursor<Document>, mongodb::error::Error> = result.find(filter, None).await;
     let mut res: Vec<Bson> = vec![];
     match docs {
         Ok(cursor) => {
@@ -129,7 +134,6 @@ async fn doc_finder(
                 let bson = bson::to_bson(&doc).unwrap();
                 res.push(bson);
             }
-
             return Ok(doc! {
                 "cursor" : doc! {
                     "firstBatch": res,
