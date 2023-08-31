@@ -1,6 +1,7 @@
 use std::{net::{TcpListener, TcpStream}, io::{Read,  Write},  env, thread};
 use byteorder::{LittleEndian,  ByteOrder};
 use bson::{Bson,  doc };
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 pub mod mongo;
 pub mod rd;
 pub mod handler;
@@ -22,9 +23,9 @@ async fn main() {
         }
         let mongo_client = mongo::MongoDb::new().await.db;
         let redis_client = rd::RedisDb::new().db;
-        Server::new(ip_addr, port, mongo_client, redis_client).start();
+        Server::new(ip_addr, port, mongo_client, redis_client).start().await;
     }
-    let listen_addr = "127.0.0.1";
+    let listen_addr = "0.0.0.0";
     let port = 27017;
     start(Some(listen_addr.to_string()), Some(port)).await;
 }
@@ -45,49 +46,46 @@ impl Server {
             redis_client,
         }
     }
-    pub fn start(&self) {
+    pub async fn start(&self) {
         println!("Starting server...");
-        let listner = TcpListener::bind(format!("{}:{}", self.listen_addr, self.port)).unwrap();
+        // let listner = TcpListener::bind(format!("{}:{}", self.listen_addr, self.port)).unwrap();
+        let test = tokio::net::TcpListener::bind(format!("{}:{}", self.listen_addr, self.port)).await.unwrap();
         println!("Server started on port {}", self.port);
-        for stream in listner.incoming() {
-            let stream = stream.unwrap();
+        loop {
+            let (stream, addr) = test.accept().await.unwrap();
             let mongo_client = self.mongo_client.clone();
             let redis_client = self.redis_client.clone();
-            println!("New connection: {}", stream.peer_addr().unwrap());
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            thread::spawn( move || {
-                rt.block_on(
-                    handle_connection(stream, mongo_client, redis_client)
-                )
+            println!("New connection: {}", addr);
+            tokio::spawn(async move {
+                handle_connection(stream, mongo_client, redis_client).await;
             });
         }
-        println!("Shutting down server");
     }
 }
 
-async fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client , redis_client: redis::Client) {  // need to possibly use request id here
+async fn handle_connection(mut stream: tokio::net::TcpStream , mongo_client: mongodb::Client , redis_client: redis::Client) {  // need to possibly use request id here
     let addr = stream.peer_addr().unwrap();
     println!("Client connected: {}", addr);
     loop {
         let mut size_buffer = [0;4];
-        let _read = stream.peek(&mut size_buffer).unwrap();
+        let _read = stream.peek(&mut size_buffer).await.unwrap();
         let size = LittleEndian::read_i32(&size_buffer);
         if size == 0 {
-            stream.flush().unwrap();
+            stream.flush().await.unwrap();
             break;
         }
         let mut buffer = vec![0; size as usize];
-        match stream.read_exact(&mut buffer) {
+        match stream.read_exact(&mut buffer).await {
             Ok(_read) => {
                 use std::time::Instant;
                 let now = Instant::now();
                 let op_code = Wire::parse(&buffer);
                 if op_code.is_err() {
                     println!("Error: {:?}", op_code);
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
                     return;
                 }
                 let op_code = op_code.unwrap();
@@ -107,8 +105,8 @@ async fn handle_connection(mut stream: TcpStream , mongo_client: mongodb::Client
                         op_code.reply(request).unwrap()
                     }
                 };
-                response.flush().unwrap();
-                stream.write_all(&response).unwrap();
+                AsyncWriteExt::flush(&mut response).await.unwrap();
+                stream.write_all(&response).await.unwrap();
             }
             Err(e) => {
                 println!("Error: {}", e);

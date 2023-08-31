@@ -60,6 +60,7 @@ impl Find {
                     .get_array("firstBatch")
                     .unwrap();
                 if c.is_empty() {
+                    println!("here2");
                     let mongo_client = _request.client;
                     let res = doc_finder(collection, filter, db, mongo_client).await.unwrap();
                     // convert the document to bson
