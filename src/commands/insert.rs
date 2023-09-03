@@ -6,7 +6,7 @@ impl Insert {
     pub fn new() -> Self {
         Insert {}
     }
-    pub async fn handle(&self,_request: &Request<'_>,msg: &Vec<Document>,) -> Result<Document, CommandExecutionError> {
+    pub fn handle(&self,_request: &Request<'_>,msg: &Vec<Document>,) -> Result<Document, CommandExecutionError> {
         let doc = &msg[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("insert").unwrap();
@@ -15,7 +15,7 @@ impl Insert {
 
         // let docss = docs.clone();
         let mongo_client = _request.client;
-        let result =  mongo_client.database(db).collection(collection).insert_many(docs , None).await;
+        let result =  mongo_client.database(db).collection(collection).insert_many(docs , None);
         match result {
             Ok(_) => Ok(doc! {
                 "ok": Bson::Double(1.0),

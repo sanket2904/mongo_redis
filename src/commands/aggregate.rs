@@ -16,17 +16,17 @@ impl Aggregate {
 }
 
 
-async fn get_aggregate(db: &str , collection: &str, pipeline: &Vec<bson::Bson> , mongo_client :&mongodb::Client) -> Result<bson::Document, crate::handler::CommandExecutionError> {
+async fn get_aggregate(db: &str , collection: &str, pipeline: &Vec<bson::Bson> , mongo_client :&mongodb::sync::Client) -> Result<bson::Document, crate::handler::CommandExecutionError> {
     // let mongo_client = crate::mongo::MongoDb::new().await.db;
     let coll = mongo_client.database(db).collection::<bson::Document>(collection); 
     let mut pipeline_vec:Vec<bson::Document> = vec![];
     for doc in pipeline {
         pipeline_vec.push(doc.as_document().unwrap().clone());
     }
-    let mut cursor = coll.aggregate(pipeline_vec, None).await.unwrap();
+    let mut cursor = coll.aggregate(pipeline_vec, None).unwrap();
     let mut docs = vec![];
     
-    while cursor.advance().await.unwrap() {
+    while cursor.advance().unwrap() {
         let doc = cursor.current();
         docs.push(bson::to_bson(&doc).unwrap());
     }

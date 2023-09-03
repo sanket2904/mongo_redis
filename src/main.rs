@@ -1,116 +1,131 @@
-use std::{net::{TcpListener, TcpStream}, io::{Read,  Write},  env, thread};
-use byteorder::{LittleEndian,  ByteOrder};
-use bson::{Bson,  doc };
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use bson::{doc, Bson, Document};
+use byteorder::{ByteOrder, LittleEndian};
+use std::{
+    env,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream}, sync::{Arc, Mutex}, collections::HashMap,
+};
+// use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use threadpool::ThreadPool;
+pub mod Wire;
+pub mod commands;
+pub mod handler;
 pub mod mongo;
 pub mod rd;
-pub mod handler;
-pub mod Wire;
+pub mod storage;
 pub mod utils;
-pub mod commands;
-#[tokio::main]
-async fn main() {
-    async fn start(listen_addr: Option<String> , port: Option<u16>)  {
-        let ip_addr = listen_addr.unwrap_or(env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string()));
-        let port = port.unwrap_or(env::var("OXIDE_PORT").unwrap_or("27017".to_string()).parse().unwrap());
+// use storage::Storage;
+
+// initial test
+
+// type Storage = std::sync::Arc<Mutex<HashMap<String,bson::Document>>>;
+
+
+fn main() {
+    fn start(listen_addr: Option<String>, port: Option<u16>) {
+        let ip_addr = listen_addr
+            .unwrap_or(env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string()));
+        let port = port.unwrap_or(
+            env::var("OXIDE_PORT")
+                .unwrap_or("27017".to_string())
+                .parse()
+                .unwrap(),
+        );
         let mongo_url = env::var("MONGO_URI").ok();
-        let redis_url = env::var("REDIS_URI").ok();
         if mongo_url.is_none() {
             panic!("Mongo uri not found");
         }
-        if redis_url.is_none() {
-            panic!("Redis uri not found");
-        }
-        let mongo_client = mongo::MongoDb::new().await.db;
-        let redis_client = rd::RedisDb::new().db;
-        Server::new(ip_addr, port, mongo_client, redis_client).start().await;
+        let mongo_client = mongo::MongoDb::new().db;
+        // let storage = storage::Storage::new();
+        start_main(ip_addr, port, mongo_client);
     }
     let listen_addr = "0.0.0.0";
     let port = 27017;
-    start(Some(listen_addr.to_string()), Some(port)).await;
+    start(Some(listen_addr.to_string()), Some(port));
 }
 
-pub struct Server {
-    listen_addr: String,
-    port: u16,
-    mongo_client: mongodb::Client,
-    redis_client: redis::Client,
-}
 
-impl Server {
-    pub fn new(listen_addr: String, port: u16 , mongo_client: mongodb::Client , redis_client: redis::Client) -> Self {
-        Server {
-            listen_addr,
-            port,
-            mongo_client,
-            redis_client,
-        }
+
+pub fn start_main(listen_addr: String, port: u16 , mongo_client:  mongodb::sync::Client ) {
+    println!("Starting server...");
+    let listner = TcpListener::bind(format!("{}:{}", listen_addr, port)).unwrap();
+    let pool = ThreadPool::new(100);
+    let storage = storage::Storage::new();
+    let mongo_client = Arc::new(mongo_client);
+    println!("Server started on port {}", port);
+    for stream in listner.incoming() {
+        let stream = stream.unwrap();
+        stream.set_nodelay(true).unwrap();
+        println!("New connection: {}", stream.peer_addr().unwrap());
+        let mongo_client = Arc::clone(&mongo_client);
+        let storage = storage.clone();
+        pool.execute(move || {
+            handle_connection(stream , &mongo_client , &storage.data);
+        });
     }
-    pub async fn start(&self) {
-        println!("Starting server...");
-        // let listner = TcpListener::bind(format!("{}:{}", self.listen_addr, self.port)).unwrap();
-        let test = tokio::net::TcpListener::bind(format!("{}:{}", self.listen_addr, self.port)).await.unwrap();
-        println!("Server started on port {}", self.port);
-        loop {
-            let (stream, addr) = test.accept().await.unwrap();
-            let mongo_client = self.mongo_client.clone();
-            let redis_client = self.redis_client.clone();
-            println!("New connection: {}", addr);
-            tokio::spawn(async move {
-                handle_connection(stream, mongo_client, redis_client).await;
-            });
-        }
-    }
+    println!("Shutting down server");
 }
 
-async fn handle_connection(mut stream: tokio::net::TcpStream , mongo_client: mongodb::Client , redis_client: redis::Client) {  // need to possibly use request id here
+fn handle_connection(
+    mut stream: TcpStream,
+    mongo_client: &mongodb::sync::Client,
+    storage: &Arc<Mutex<HashMap<String,Document>>>,
+) {
+    // need to possibly use request id here
     let addr = stream.peer_addr().unwrap();
     println!("Client connected: {}", addr);
     loop {
-        let mut size_buffer = [0;4];
-        let _read = stream.peek(&mut size_buffer).await.unwrap();
+        let mut size_buffer = [0; 4];
+        stream.peek(&mut size_buffer).unwrap();
         let size = LittleEndian::read_i32(&size_buffer);
+        println!("Size: {}", size);
         if size == 0 {
-            stream.flush().await.unwrap();
+            stream.flush().unwrap();
+            println!("Client disconnected: {}", addr);
             break;
         }
         let mut buffer = vec![0; size as usize];
-        match stream.read_exact(&mut buffer).await {
+        match stream.read_exact(&mut buffer) {
             Ok(_read) => {
-                use std::time::Instant;
-                let now = Instant::now();
+                
+
                 let op_code = Wire::parse(&buffer);
                 if op_code.is_err() {
                     println!("Error: {:?}", op_code);
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).await.unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
                     return;
                 }
                 let op_code = op_code.unwrap();
                 let mongo_client = mongo_client.clone();
-                let redis_client = redis_client.clone();
-                let mut response = match handler::handle(0, addr, &op_code, mongo_client, redis_client).await {
-                    Ok(reply) => reply,
-                    Err(e) => {
-                        println!("Error: {}", e);
-                        let err = doc! {
-                            "ok": Bson::Double(0.0),
-                            "errmsg": Bson::String(format!("{}", e)),
-                            "code": Bson::Int32(59),
-                            "codeName": "CommandNotFound",
-                        };
-                        let request = handler::Response::new(0, &op_code, vec![err]);
-                        op_code.reply(request).unwrap()
-                    }
-                };
-                AsyncWriteExt::flush(&mut response).await.unwrap();
-                stream.write_all(&response).await.unwrap();
+                let storage = storage.clone();
+                // let redis_client = redis_client.clone();
+
+                let mut response =
+                    match handler::handle(0, addr, &op_code, mongo_client, &storage) {
+                        Ok(reply) => reply,
+                        Err(e) => {
+                            println!("Error: {}", e);
+                            let err = doc! {
+                                "ok": Bson::Double(0.0),
+                                "errmsg": Bson::String(format!("{}", e)),
+                                "code": Bson::Int32(59),
+                                "codeName": "CommandNotFound",
+                            };
+                            let request = handler::Response::new(0, &op_code, vec![err]);
+                            op_code.reply(request).unwrap()
+                        }
+                    };
+
+                println!("Response size {}", response.len());
+                response.flush().unwrap();
+                stream.write_all(&response).unwrap();
             }
             Err(e) => {
                 println!("Error: {}", e);
-                break;
+                return;
             }
         }
     }

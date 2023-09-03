@@ -1,8 +1,11 @@
 
 #![allow(dead_code)]
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Mutex;
 
 use bson::{Document, doc, Bson};
+
 
 use crate::Wire::{OpCode, OP_MSG};
 
@@ -14,19 +17,21 @@ use crate::commands::ping::Ping;
 
  
 pub struct Request<'a> {
-    pub client: &'a mongodb::Client,
+    pub client: &'a mongodb::sync::Client,
     pub peer_addr: std::net::SocketAddr,
     pub op_code: &'a OpCode,
-    pub redis_client: &'a redis::Client,
+    // pub redis_client: &'a redis::Client,
+    pub storage: &'a std::sync::Arc<Mutex<HashMap<String, bson::Document>>>,
 }
 
 impl <'a> Request<'a> {
-    pub fn new(client: &'a mongodb::Client, peer_addr: std::net::SocketAddr, op_code: &'a OpCode , redis_client: &'a redis::Client) -> Request<'a> {
+    pub fn new(client: &'a mongodb::sync::Client, peer_addr: std::net::SocketAddr, op_code: &'a OpCode , storage:&'a  std::sync::Arc<Mutex<HashMap<String, bson::Document>>>) -> Request<'a> {
         return Request {
             client: client,
             peer_addr: peer_addr,
             op_code: op_code,
-            redis_client: redis_client ,
+            // redis_client: redis_client ,
+            storage: storage,
         };
     }
     pub fn peer_addr(&self) -> std::net::SocketAddr {
@@ -35,10 +40,10 @@ impl <'a> Request<'a> {
     pub fn get_op_code(&self) -> &'a OpCode {
         return self.op_code;
     }
-    pub fn get_redis_client(&self) -> &'a redis::Client {
-        return self.redis_client;
+    pub fn get_storage(&self) -> &'a  std::sync::Arc<Mutex<HashMap<String, bson::Document>>> {
+        return self.storage;
     }
-    pub fn get_mongo_client(&self) -> &'a mongodb::Client {
+    pub fn get_mongo_client(&self) -> &'a mongodb::sync::Client {
         return self.client;
     }
 }
@@ -89,17 +94,17 @@ impl <'a> Response<'a> {
 }
 
 
-pub async fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_client: mongodb::Client , redis_client: redis::Client) -> Result<Vec<u8>, CommandExecutionError> {
+pub fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_client: mongodb::sync::Client , storage: &std::sync::Arc<Mutex<HashMap<String, bson::Document>>>) -> Result<Vec<u8>, CommandExecutionError> {
 
 
     let request = Request {
         client: &mongo_client,
         peer_addr: peer_addr,
         op_code: &op_code,
-        redis_client: &redis_client,
+        storage:  storage,
     };
 
-    match route(&request).await {
+    match route(&request) {
         Ok(doc) => {
             let response = Response {
                 id, op_code,docs: vec![doc],
@@ -115,11 +120,11 @@ pub async fn handle(id:u32, peer_addr: SocketAddr, op_code: &OpCode , mongo_clie
 
 // route function 
 
-async fn route(request: &Request<'_>) -> Result<Document, CommandExecutionError> {
+fn route(request: &Request<'_>) -> Result<Document, CommandExecutionError> {
     match request.get_op_code() {
         // OpCode::OpMsg(op_msg) => op_msg.handle(request),
         OpCode::OpQuery(op_query) => run_op_query(request,  &vec![op_query.query.clone()]),
-        OpCode::OpMsg(message) => handle_op_msg(request, message.clone()).await,
+        OpCode::OpMsg(message) => handle_op_msg(request, message.clone()),
         _ => Err(CommandExecutionError::new("Unknown OpCode".to_string())),
     }
 }
@@ -146,25 +151,25 @@ fn run_op_query(request: &Request, docs: &Vec<Document>) -> Result<Document, Com
 
 
 
-async fn  run(request: &Request<'_>, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+fn  run(request: &Request<'_>, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
     if command == "listDatabases" {
-        return crate::commands::list_databases::ListDatabases::new().handle(request, docs).await;
+        return crate::commands::list_databases::ListDatabases::new().handle(request, docs);
     }
     else if command == "listCollections" {
-        return crate::commands::list_collections::ListCollections::new().handle(request, docs).await;
+        return crate::commands::list_collections::ListCollections::new().handle(request, docs);
     } else if command == "listIndexes" {
-        return crate::commands::list_indexes::ListIndexes::new().handle(request, docs).await;
+        return crate::commands::list_indexes::ListIndexes::new().handle(request, docs);
     } else if command == "getCmdLineOpts" {
         return crate::commands::get_cmd_line_opts::GetCmdLineOpts::new().handle(request, docs);
     } else if command == "buildInfo" || command == "buildinfo" {
         return crate::commands::build_info::BuildInfo::new().handle(request, docs);
     } else if command == "find" {
-        return crate::commands::find::Find::new().handle(request, docs).await;
+        return crate::commands::find::Find::new().handle(request, docs);
     } else if command == "insert" {
-        return crate::commands::insert::Insert::new().handle(request, docs).await;
+        return crate::commands::insert::Insert::new().handle(request, docs);
     } else if command == "create" {
-        return crate::commands::create::Create::new().handle(request, docs).await;
+        return crate::commands::create::Create::new().handle(request, docs);
     } else if command == "connectionStatus" {
         return crate::commands::connection_status::ConnectionStatus::new().handle(request, docs);
     } else if command == "getParameter"{
@@ -191,7 +196,7 @@ async fn  run(request: &Request<'_>, docs: &Vec<Document>) -> Result<Document, C
 }
 
 
-async fn handle_op_msg(request: &Request<'_>, msg: OP_MSG) -> Result<Document, CommandExecutionError> {
+fn handle_op_msg(request: &Request<'_>, msg: OP_MSG) -> Result<Document, CommandExecutionError> {
     if msg.sections.len() < 1 {
         
         return Err(CommandExecutionError::new(
@@ -212,7 +217,7 @@ async fn handle_op_msg(request: &Request<'_>, msg: OP_MSG) -> Result<Document, C
                 }
             }
         }
-        return run(request, &documents).await;
+        return run(request, &documents);
     }
 
     if section.kind == 1 {
@@ -231,7 +236,7 @@ async fn handle_op_msg(request: &Request<'_>, msg: OP_MSG) -> Result<Document, C
             }
             let mut doc = msg.sections[1].documents[0].clone();
             doc.insert(identifier, section.documents.clone());
-            return run(request, &vec![doc]).await;
+            return run(request, &vec![doc]);
         }
         return Err(CommandExecutionError::new(
             format!(

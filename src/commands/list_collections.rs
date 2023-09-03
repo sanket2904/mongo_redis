@@ -1,5 +1,5 @@
 
-use crate::{mongo::MongoDb, handler::CommandExecutionError};
+use crate::handler::CommandExecutionError;
 use bson::{doc,Bson, Document};
 
 pub struct ListCollections {}
@@ -9,12 +9,23 @@ impl ListCollections {
         ListCollections {}
     }
 
-    pub async fn handle(&self,_request: &crate::handler::Request<'_>,msg: &Vec<bson::Document>) -> Result<Document, CommandExecutionError> {
+    pub fn handle(&self,_request: &crate::handler::Request<'_>,msg: &Vec<bson::Document>) -> Result<Document, CommandExecutionError> {
         
         let doc = &msg[0];
         let db = doc.get_str("$db").unwrap();
-        let colls_doc = send_collections(db).await;
+        // let colls_doc = send_collections(db);
+
+        let mongo_client = _request.client;
+        let client = mongo_client.database(db);
+        let mut colls = client.list_collections(None, None).unwrap();
         // use while to manage cursor
+        let mut colls_doc: Vec<bson::Bson> = vec![];
+
+        while colls.advance().unwrap() {
+            let coll = colls.current();
+            let bson = bson::to_bson(&coll).unwrap();
+            colls_doc.push(bson);
+        }
 
         return Ok(doc! {
             "cursor": doc! {
@@ -28,19 +39,19 @@ impl ListCollections {
 }
 
 
-async fn send_collections(db: &str) -> Vec<bson::Bson> {
+// fn send_collections(db: &str) -> Vec<bson::Bson> {
 
 
-    let mongo_client = MongoDb::new().await;
-    let client = mongo_client.db.database(db);
-    let mut colls = client.list_collections(None, None).await.unwrap();
-    let mut colls_doc: Vec<bson::Bson> = vec![];
+//     let mongo_client = MongoDb::new();
+//     let client = mongo_client.db.database(db);
+//     let mut colls = client.list_collections(None, None).unwrap();
+//     let mut colls_doc: Vec<bson::Bson> = vec![];
 
-    while colls.advance().await.unwrap() {
-        let coll = colls.current();
-        let bson = bson::to_bson(&coll).unwrap();
-        colls_doc.push(bson);
-    }
-    return colls_doc;
+//     while colls.advance().unwrap() {
+//         let coll = colls.current();
+//         let bson = bson::to_bson(&coll).unwrap();
+//         colls_doc.push(bson);
+//     }
+//     return colls_doc;
     
-}
+// }
