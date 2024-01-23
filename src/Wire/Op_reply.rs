@@ -1,9 +1,9 @@
 use std::io::{Cursor, Write};
 
 use bson::{Document,  ser};
-use byteorder::{LittleEndian,  WriteBytesExt};
+use byteorder::{LittleEndian,  WriteBytesExt, ReadBytesExt};
 
-use super::{MsgHeader, Serializable};
+use super::{MsgHeader, Serializable, Deserializable,  HEADER_SIZE};
 
 
 
@@ -59,4 +59,34 @@ impl Serializable for OP_REPLY {
 
         writer.into_inner()
     }
+    
 }
+
+impl Deserializable for OP_REPLY {
+    fn from_bytes(bytes: Vec<u8>) -> OP_REPLY{
+        let mut cursor = Cursor::new(bytes);
+        let header = MsgHeader::from_bytes(cursor.get_ref().to_vec()).unwrap();
+        cursor.set_position(HEADER_SIZE as u64);
+        let flags = cursor.read_u32::<LittleEndian>().unwrap();
+        let cursor_id = cursor.read_u64::<LittleEndian>().unwrap();
+        let starting_from = cursor.read_u32::<LittleEndian>().unwrap();
+        let number_returned = cursor.read_u32::<LittleEndian>().unwrap();
+        let mut documents = vec![];
+        loop {
+            let doc = Document::from_reader(&mut cursor).unwrap();
+            documents.push(doc);
+            if cursor.position() as usize >= cursor.get_ref().len() - 1 {
+                break;
+            }
+        }
+        OP_REPLY {
+            header,
+            flags,
+            cursor_id,
+            starting_from,
+            number_returned,
+            documents,
+        }
+    }
+}
+

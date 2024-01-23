@@ -44,6 +44,10 @@ pub struct OpCodeNotImplementedError {
 pub trait Serializable {
     fn to_vec(&self) -> Vec<u8>;
 }
+
+pub trait Deserializable {
+    fn from_bytes(bytes: Vec<u8>) -> Self;
+}
 pub trait Replyable {
     fn reply(&self, response: Response) -> Result<Vec<u8>, UnknownMessageKindError>
     where

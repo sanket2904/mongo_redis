@@ -67,6 +67,24 @@ impl OP_MSG {
         }
         Ok(OP_MSG { header, flags, sections, checksum })
     }
+    // creating a function to convert Op_msg to Vec<u8> 
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut writer = Cursor::new(Vec::new());
+        writer.write_all(&self.header.to_vec()).unwrap();
+        writer.write_u32::<LittleEndian>(self.flags).unwrap();
+        for section in &self.sections {
+            writer.write(&[section.kind]).unwrap();
+            for doc in &section.documents {
+                let bson_vec = ser::to_vec(&doc).unwrap();
+                let bson_data: &[u8] = &bson_vec;
+                writer.write(bson_data).unwrap();
+            }
+        }
+        if (self.flags & CHECKSUM_PRESENT) != 0 {
+            writer.write_u32::<LittleEndian>(self.checksum.unwrap()).unwrap();
+        }
+        writer.into_inner()
+    }
 }
 
 
