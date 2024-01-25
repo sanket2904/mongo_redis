@@ -6,9 +6,9 @@ pub trait Handler {
     fn new() -> Self;
     fn handle(&self,request: &Request,msg: &Vec<Document>,) -> Result<Document, CommandExecutionError>;
 }
-pub fn hash(filter: &Document ) -> String {
+pub fn hash(filter: String ) -> String {
     let mut hasher = DefaultHasher::new();
-    let filter_bytes = filter.to_string().into_bytes();
+    let filter_bytes = filter.into_bytes();
     filter_bytes.hash(&mut hasher);
     let result = hasher.finish();
     let hash = format!("{:x}", result);
