@@ -121,7 +121,6 @@ pub fn start_main(listen_addr: String, port: u16) {
         stream.set_nodelay(true).unwrap();
         println!("New connection: {}", stream.peer_addr().unwrap());
         // get mongodb uri from env
-
         let mut root_cert_store = RootCertStore::empty();
         root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let config = ClientConfig::builder()

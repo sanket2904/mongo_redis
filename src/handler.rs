@@ -152,7 +152,8 @@ fn run(request: & Request<'_,'_>, docs: &Vec<Document>) -> Result<Document, Comm
     println!("command is: {}", command);
     println!("docs: {:?}", docs[0]);
     if command == "find" {
-        let doc = &docs[0];
+        let time = std::time::SystemTime::now();
+        let doc: &Document = &docs[0];
         let filter = if doc.contains_key("filter") {
             doc.get_document("filter").unwrap().clone()
         } else {
@@ -188,6 +189,7 @@ fn run(request: & Request<'_,'_>, docs: &Vec<Document>) -> Result<Document, Comm
         else {
             println!("found in cache");
             if let InnerData::Document(data) = data.unwrap() {
+                println!("time: {:?}", time.elapsed().unwrap());
                 return Ok(data.clone());
             }
             else {
@@ -196,6 +198,7 @@ fn run(request: & Request<'_,'_>, docs: &Vec<Document>) -> Result<Document, Comm
         }
     }
     else if command == "getMore" {
+
         let doc = &docs[0];
         let collection_name = doc.get_str("collection").unwrap();
         let cursor_id = doc.get_i64("getMore").unwrap();
@@ -243,14 +246,17 @@ fn run(request: & Request<'_,'_>, docs: &Vec<Document>) -> Result<Document, Comm
             },
             None => {
                 let new_hash = hash(format!("{}{}.true", collection_name, cursor_id));
-                let check = st.get(&new_hash);
+                let check = st.remove(&new_hash);
                 match check {
                     Some(data) => {
+                        println!("found in cache");
                         if let InnerData::Documents(data_vec)  = data {
-                            let mut docs = data_vec.to_vec();
+                            let time = std::time::SystemTime::now();
+                            let mut docs = data_vec;
                             let first = docs.remove(0);
                             docs.push(first.clone());
-                            st.insert(new_hash, InnerData::Documents(docs.to_vec()));
+                            st.insert(new_hash, InnerData::Documents(docs));
+                            println!("time: {:?}", time.elapsed().unwrap());
                             return Ok(first);
                         }
                     },
