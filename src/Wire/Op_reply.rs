@@ -6,7 +6,7 @@ use byteorder::{LittleEndian,  WriteBytesExt, ReadBytesExt};
 use super::{MsgHeader, Serializable, Deserializable,  HEADER_SIZE};
 
 
-
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
 pub struct OP_REPLY {
     pub header: MsgHeader,

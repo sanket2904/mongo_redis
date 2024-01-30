@@ -7,7 +7,7 @@ use super::{MsgHeader, Replyable, HEADER_SIZE, OpCode, OP_REPLY, Serializable};
 
 use crate::handler::Response;
 
-
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone)]
 pub struct OP_QUERY {
     pub header: MsgHeader,

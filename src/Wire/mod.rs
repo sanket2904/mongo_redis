@@ -1,7 +1,6 @@
+#![allow(non_snake_case)]
 use std::io::{Cursor, Read};
-
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
 pub mod Op_msg;
 pub mod Op_query;
 pub mod Op_reply;
@@ -35,7 +34,7 @@ pub struct MsgHeader {
     pub op_code: u32,
 
 }
-
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct OpCodeNotImplementedError {
     op_code: u32,
