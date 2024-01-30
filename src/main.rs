@@ -20,7 +20,7 @@ pub mod Wire;
 pub mod commands;
 pub mod handler;
 
-pub mod storage;
+
 pub mod utils;
 
 fn main() {
@@ -34,11 +34,12 @@ fn find_primary(mongouri: &str) -> String {
         .collect::<Vec<&str>>()[1]
         .split("/")
         .collect::<Vec<&str>>()[0];
-    println!("URI: {}", uri);
     let response = resolver
         .srv_lookup(format!("_mongodb._tcp.{}", uri))
         .unwrap();
+    
     let ip: &trust_dns_resolver::proto::rr::rdata::SRV = response.iter().next().unwrap();
+    println!("{:?}", ip);
     let main_ip = ip.target().to_string();
     let dns_name = ServerName::try_from(main_ip.clone()).unwrap();
     // remove the last dot and add the port
@@ -54,7 +55,6 @@ fn find_primary(mongouri: &str) -> String {
         .with_root_certificates(root_cert_store)
         .with_no_client_auth();
     let arc = std::sync::Arc::new(config);
-    println!("Main IP: {}", main_ip);
     let mut client: rustls::ClientConnection =
         rustls::ClientConnection::new(arc.clone(), dns_name).unwrap();
     let mut server: TcpStream = TcpStream::connect(main_ip).unwrap();
@@ -86,10 +86,8 @@ fn find_primary(mongouri: &str) -> String {
     // wait for the server to send a response
     mongo_client.read_exact(&mut size_buffer).unwrap();
     let mut size = LittleEndian::read_i32(&size_buffer);
-    println!("Size: {}", size);
     size = size - size_buffer.len() as i32;
     let mut buffer = vec![0; size as usize];
-    println!("Buffer size: {}", buffer.len());
     mongo_client.read_exact(&mut buffer).unwrap();
     let buffer = [size_buffer, buffer].concat();
     let mut cursor = Cursor::new(buffer);
