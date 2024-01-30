@@ -4,13 +4,10 @@ use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex};
-
 use crate::commands::is_master::IsMaster;
 use crate::commands::{hash, Handler};
 use crate::Wire::{OpCode, HEADER_SIZE, OP_MSG};
-
 pub type Storage = std::sync::Arc<Mutex<HashMap<String, InnerData>>>;
-
 pub struct Request<'a, 'b> {
     pub client: Arc<Mutex<rustls::Stream<'b, rustls::ClientConnection, TcpStream>>>,
     pub peer_addr: std::net::SocketAddr,
@@ -18,15 +15,12 @@ pub struct Request<'a, 'b> {
     pub storage: &'a Storage,
 }
 
-
-
 #[derive(Debug)]
 pub struct GetMore {
     can_read: bool,
     position: usize,
     documents: Vec<Document>,
 }
-
 
 impl GetMore {
     pub fn new() -> Self {
@@ -59,14 +53,28 @@ impl GetMore {
         }
         None
     }
-
-
 }
 
-
-
-
-
+fn get_document_server( request: &Request , docs: &Vec<Document>) -> Document {
+    let response_to_server = request.client.clone();
+    let res = Response::new(0, request.op_code, docs.to_owned());
+    let res: Vec<u8> = request.op_code.reply(res).unwrap();
+    let mut lock = response_to_server.lock().unwrap();
+    lock.write_all(&res).unwrap();
+    lock.flush().unwrap();
+    // read the response from the server
+    let mut size_buffer: Vec<u8> = vec![0; 4];
+    lock.read_exact(&mut size_buffer).unwrap();
+    let mut size = LittleEndian::read_i32(&size_buffer);
+    size = size - size_buffer.len() as i32;
+    let mut buffer: Vec<u8> = vec![0; size as usize];
+    lock.read_exact(&mut buffer).unwrap();
+    let buffer = [size_buffer, buffer].concat();
+    let mut cursor = Cursor::new(buffer);
+    cursor.set_position((HEADER_SIZE + 5 as u32).into());
+    let document = Document::from_reader(cursor).unwrap();
+    document
+}
 
 pub enum InnerData {
     // the data could be document or queue of documents
@@ -136,7 +144,6 @@ impl<'a> Response<'a> {
         &self.docs[0]
     }
 }
-
 pub fn handle(
     id: u32,
     peer_addr: SocketAddr,
@@ -151,7 +158,6 @@ pub fn handle(
         storage,
         peer_addr: peer_addr,
     };
-
     match route(&request) {
         Ok(doc) => {
             let response = Response {
@@ -164,9 +170,6 @@ pub fn handle(
         Err(e) => Err(e),
     }
 }
-
-// route function
-
 fn route(request: &Request<'_, '_>) -> Result<Document, CommandExecutionError> {
     match request.get_op_code() {
         // OpCode::OpMsg(op_msg) => op_msg.handle(request),
@@ -175,7 +178,6 @@ fn route(request: &Request<'_, '_>) -> Result<Document, CommandExecutionError> {
         _ => Err(CommandExecutionError::new("Unknown OpCode".to_string())),
     }
 }
-
 fn run_op_query(
     request: &Request,
     docs: &Vec<Document>,
@@ -194,7 +196,6 @@ fn run_op_query(
         })
     }
 }
-
 fn run(request: &Request<'_, '_>, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
     if command == "find" {
@@ -210,22 +211,7 @@ fn run(request: &Request<'_, '_>, docs: &Vec<Document>) -> Result<Document, Comm
         let mut st = storage.lock().unwrap();
         let data = st.get(&hash);
         if data.is_none() {
-            let response_to_server = request.client.clone();
-            let res = Response::new(0, request.op_code, docs.to_owned());
-            let res: Vec<u8> = request.op_code.reply(res).unwrap();
-            let mut lock = response_to_server.lock().unwrap();
-            lock.write_all(&res).unwrap();
-            lock.flush().unwrap();
-            let mut size_buffer: Vec<u8> = vec![0; 4];
-            lock.read_exact(&mut size_buffer).unwrap();
-            let mut size = LittleEndian::read_i32(&size_buffer);
-            size = size - size_buffer.len() as i32;
-            let mut buffer: Vec<u8> = vec![0; size as usize];
-            lock.read_exact(&mut buffer).unwrap();
-            let buffer = [size_buffer, buffer].concat();
-            let mut cursor = Cursor::new(buffer);
-            cursor.set_position((HEADER_SIZE + 5 as u32).into());
-            let document = Document::from_reader(cursor).unwrap();
+            let document = get_document_server(request, docs);
             st.insert(hash, InnerData::Document(document.clone()));
             return Ok(document);
         } else {
@@ -235,90 +221,34 @@ fn run(request: &Request<'_, '_>, docs: &Vec<Document>) -> Result<Document, Comm
                 panic!("data is not a document");
             }
         }
-    } 
-
-    else if command == "getMore" {
+    } else if command == "getMore" {
         let doc = &docs[0];
-        let collection_name = doc.get_str("collection").unwrap();
         let cursor_id = doc.get_i64("getMore").unwrap();
         let storage = request.get_storage().clone();
-        let hashh = hash(format!("{}{}.false", collection_name, cursor_id));
+        let hashh = hash(format!("{}", cursor_id));
         let mut st = storage.lock().unwrap();
         let data = st.get_mut(&hashh);
-        if data.is_none() {
+        if data.is_some() {
+            if let InnerData::Documents(ref mut get_more) = data.unwrap() {
+                if let Some(doc) = get_more.get_document() {
+                    return Ok(doc);
+                } else {
+                    let document = get_document_server(request, docs);
+                    get_more.add_document(document.clone());
+                    return Ok(document);
+                }
+            } else {
+                panic!("data is not a document");
+            }
+        } else {
             let mut get_more = GetMore::new();
-            let response_to_server = request.client.clone();
-            let res = Response::new(0, request.op_code, docs.to_owned());
-            let res: Vec<u8> = request.op_code.reply(res).unwrap();
-            let mut lock = response_to_server.lock().unwrap();
-            lock.write_all(&res).unwrap();
-            lock.flush().unwrap();
-            // read the response from the server
-            let mut size_buffer: Vec<u8> = vec![0; 4];
-            lock.read_exact(&mut size_buffer).unwrap();
-            let mut size = LittleEndian::read_i32(&size_buffer);
-            size = size - size_buffer.len() as i32;
-            let mut buffer: Vec<u8> = vec![0; size as usize];
-            lock.read_exact(&mut buffer).unwrap();
-            let buffer = [size_buffer, buffer].concat();
-            let mut cursor = Cursor::new(buffer);
-            cursor.set_position((HEADER_SIZE + 5 as u32).into());
-            let document = Document::from_reader(cursor).unwrap();
+            let document = get_document_server(request, docs);
             get_more.add_document(document.clone());
             st.insert(hashh, InnerData::Documents(get_more));
             return Ok(document);
         }
-        else {
-            if let InnerData::Documents( ref mut get_more) = data.unwrap()  {
-                if let Some(doc) = get_more.get_document() {
-                    return Ok(doc);
-                }
-                else {
-                    let response_to_server = request.client.clone();
-                    let res = Response::new(0, request.op_code, docs.to_owned());
-                    let res: Vec<u8> = request.op_code.reply(res).unwrap();
-                    let mut lock = response_to_server.lock().unwrap();
-                    lock.write_all(&res).unwrap();
-                    lock.flush().unwrap();
-                    // read the response from the server
-                    let mut size_buffer: Vec<u8> = vec![0; 4];
-                    lock.read_exact(&mut size_buffer).unwrap();
-                    let mut size = LittleEndian::read_i32(&size_buffer);
-                    size = size - size_buffer.len() as i32;
-                    let mut buffer: Vec<u8> = vec![0; size as usize];
-                    lock.read_exact(&mut buffer).unwrap();
-                    let buffer = [size_buffer, buffer].concat();
-                    let mut cursor = Cursor::new(buffer);
-                    cursor.set_position((HEADER_SIZE + 5 as u32).into());
-                    let document = Document::from_reader(cursor).unwrap();
-                    get_more.add_document(document.clone());
-                    return Ok(document);
-                }
-            }
-            else {
-                panic!("data is not a document");
-            }
-        }
-       
-    }
-    else {
-        let response_to_server = request.client.clone();
-        let res = Response::new(0, request.op_code, docs.to_owned());
-        let res: Vec<u8> = request.op_code.reply(res).unwrap();
-        let mut lock = response_to_server.lock().unwrap();
-        lock.write_all(&res).unwrap();
-        lock.flush().unwrap();
-        // read the response from the server
-        let mut size_buffer: Vec<u8> = vec![0; 4];
-        lock.read_exact(&mut size_buffer).unwrap();
-        let mut size = LittleEndian::read_i32(&size_buffer);
-        size = size - size_buffer.len() as i32;
-        let mut buffer: Vec<u8> = vec![0; size as usize];
-        lock.read_exact(&mut buffer).unwrap();
-        let buffer = [size_buffer, buffer].concat();
-        let mut cursor = Cursor::new(buffer);
-        cursor.set_position((HEADER_SIZE + 5 as u32).into());
-        let document = Document::from_reader(cursor).unwrap();
+    } else {
+        let document = get_document_server(request, docs);
         let doc = document.clone();
         Ok(doc)
     }
@@ -333,7 +263,6 @@ fn handle_op_msg(
             "OP_MSG must have at least one section, received none".to_string(),
         ));
     }
-
     let section = msg.sections[0].clone();
     if section.kind == 0 {
         let mut documents = section.documents.clone();
@@ -349,7 +278,6 @@ fn handle_op_msg(
         }
         return run(&mut request, &documents);
     }
-
     if section.kind == 1 {
         if section.identifier.is_none() {
             return Err(CommandExecutionError::new(

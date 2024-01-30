@@ -39,7 +39,6 @@ fn find_primary(mongouri: &str) -> String {
         .unwrap();
     
     let ip: &trust_dns_resolver::proto::rr::rdata::SRV = response.iter().next().unwrap();
-    println!("{:?}", ip);
     let main_ip = ip.target().to_string();
     let dns_name = ServerName::try_from(main_ip.clone()).unwrap();
     // remove the last dot and add the port
@@ -127,7 +126,6 @@ pub fn start_main(listen_addr: String, port: u16) {
         let arc = std::sync::Arc::new(config);
         let a = addr.clone().split(":").collect::<Vec<&str>>()[0].to_string();
         let dns_name = ServerName::try_from(a).unwrap();
-        // let mongo_client = Arc::clone(&mongo_client);
         let storage: Arc<Mutex<HashMap<String, crate::handler::InnerData>>> = storage.clone();
         let addr = addr.clone();
         pool.execute(move || {
