@@ -15,7 +15,7 @@ pub struct Request<'a, 'b> {
     pub storage: &'a Storage,
 }
 
-#[derive(Debug)]
+
 pub struct GetMore {
     can_read: bool,
     position: usize,
@@ -43,12 +43,12 @@ impl GetMore {
     pub fn get_document(&mut self) -> Option<Document> {
         if self.can_read {
             if self.position < self.documents.len() {
-                let doc = self.documents[self.position].clone();
+                let doc = &self.documents[self.position];
                 self.position += 1;
                 if self.position == self.documents.len() {
                     self.position = 0;
                 }
-                return Some(doc);
+                return Some(doc.to_owned());
             }
         }
         None
